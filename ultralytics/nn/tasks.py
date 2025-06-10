@@ -487,7 +487,7 @@ class SegmentationModel(DetectionModel):
 class PoseModel(DetectionModel):
     """YOLO pose model."""
 
-    def __init__(self, cfg="yolo11n-pose.yaml", ch=3, nc=None, data_kpt_shape=(None, None), verbose=True):
+    def __init__(self, cfg="yolo11n-pose.yaml", ch=3, nc=None, data_kpt_shape=(None, None), verbose=True, l1=False, fixed_area=None):
         """
         Initialize Ultralytics YOLO Pose model.
 
@@ -505,9 +505,13 @@ class PoseModel(DetectionModel):
             cfg["kpt_shape"] = data_kpt_shape
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
 
+        print(f"L1: {l1}, Fixed area: {fixed_area}")
+        self.l1 = l1
+        self.fixed_area = fixed_area
+
     def init_criterion(self):
         """Initialize the loss criterion for the PoseModel."""
-        return v8PoseLoss(self)
+        return v8PoseLoss(self, l1=self.l1, fixed_area=self.fixed_area)
 
 
 class ClassificationModel(BaseModel):

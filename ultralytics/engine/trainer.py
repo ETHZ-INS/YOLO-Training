@@ -9,6 +9,7 @@ Usage:
 import gc
 import math
 import os
+import shutil
 import subprocess
 import time
 import warnings
@@ -118,6 +119,11 @@ class BaseTrainer:
             self.wdir.mkdir(parents=True, exist_ok=True)  # make dir
             self.args.save_dir = str(self.save_dir)
             YAML.save(self.save_dir / "args.yaml", vars(self.args))  # save run args
+            # Copy meta folder from dataset
+            if self.args.data and os.path.exists(self.args.data):
+                meta_dir = Path(self.args.data).parent / "meta"
+                target_dir = self.save_dir / "meta"
+                shutil.copytree(meta_dir, target_dir, dirs_exist_ok=True)
         self.last, self.best = self.wdir / "last.pt", self.wdir / "best.pt"  # checkpoint paths
         self.save_period = self.args.save_period
 

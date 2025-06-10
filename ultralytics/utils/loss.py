@@ -162,6 +162,38 @@ class KeypointLoss(nn.Module):
         return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
 
 
+class L1KeypointLoss(nn.Module):
+    """Criterion class for computing keypoint losses."""
+
+    def __init__(self, sigmas) -> None:
+        """Initialize the KeypointLoss class with keypoint sigmas."""
+        super().__init__()
+        self.sigmas = sigmas
+
+    def forward(self, pred_kpts, gt_kpts, kpt_mask, area):
+        d = (pred_kpts[..., 0] - gt_kpts[..., 0]).abs() + (pred_kpts[..., 1] - gt_kpts[..., 1]).abs()
+        kpt_loss_factor = (torch.sum(kpt_mask != 0) + torch.sum(kpt_mask == 0)) / (torch.sum(kpt_mask != 0) + 1e-9)
+        return kpt_loss_factor * (d * kpt_mask).mean()
+
+
+class FixedAreaKeypointLoss(nn.Module):
+    """Criterion class for computing keypoint losses."""
+
+    def __init__(self, sigmas, area=500) -> None:
+        """Initialize the KeypointLoss class with keypoint sigmas."""
+        super().__init__()
+        self.sigmas = sigmas
+        self.area = area
+
+    def forward(self, pred_kpts, gt_kpts, kpt_mask, area):
+        """Calculate keypoint loss factor and Euclidean distance loss for keypoints."""
+        d = (pred_kpts[..., 0] - gt_kpts[..., 0]).pow(2) + (pred_kpts[..., 1] - gt_kpts[..., 1]).pow(2)
+        kpt_loss_factor = kpt_mask.shape[1] / (torch.sum(kpt_mask != 0, dim=1) + 1e-9)
+        # e = d / (2 * (area * self.sigmas) ** 2 + 1e-9)  # from formula
+        e = d / ((2 * self.sigmas).pow(2) * (self.area + 1e-9) * 2)  # from cocoeval
+        return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
+
+
 class v8DetectionLoss:
     """Criterion class for computing training losses for YOLOv8 object detection."""
 
@@ -454,15 +486,19 @@ class v8SegmentationLoss(v8DetectionLoss):
 class v8PoseLoss(v8DetectionLoss):
     """Criterion class for computing training losses for YOLOv8 pose estimation."""
 
-    def __init__(self, model):  # model must be de-paralleled
+    def __init__(self, model, l1=False, fixed_area=None):  # model must be de-paralleled
         """Initialize v8PoseLoss with model parameters and keypoint-specific loss functions."""
         super().__init__(model)
         self.kpt_shape = model.model[-1].kpt_shape
         self.bce_pose = nn.BCEWithLogitsLoss()
-        is_pose = self.kpt_shape == [17, 3]
         nkpt = self.kpt_shape[0]  # number of keypoints
-        sigmas = torch.from_numpy(OKS_SIGMA).to(self.device) if is_pose else torch.ones(nkpt, device=self.device) / nkpt
-        self.keypoint_loss = KeypointLoss(sigmas=sigmas)
+        sigmas = torch.ones(nkpt, device=self.device) / 15
+        if l1:
+            self.keypoint_loss = L1KeypointLoss(sigmas=sigmas)
+        elif fixed_area is not None:
+            self.keypoint_loss = FixedAreaKeypointLoss(sigmas=sigmas, area=fixed_area)
+        else:
+            self.keypoint_loss = KeypointLoss(sigmas=sigmas)
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
